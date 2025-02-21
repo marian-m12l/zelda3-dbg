@@ -972,8 +972,12 @@ void ppu_renderDebugger(Ppu *ppu, int bg, uint offset) {
       }
       uint16_t color = ppu->cgram[pixel & 0xff];
 
-      if (bg < 0 && (line >= 224 || x > 256)) {
-        color = 0;
+      if (bg < 0) {
+        if (line > 224 || x > 256) {
+          color = 0;
+        } else if (line == 0 || line == 224 || x == 0 || x == 256) {
+          color = 0xffff;
+        }
       }
 
       if (bg >= 0 && (
