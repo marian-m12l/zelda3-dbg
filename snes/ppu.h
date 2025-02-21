@@ -137,6 +137,8 @@ void ppu_write(Ppu* ppu, uint8_t adr, uint8_t val);
 void ppu_saveload(Ppu *ppu, SaveLoadFunc *func, void *ctx);
 void PpuBeginDrawing(Ppu *ppu, uint8_t *buffer, size_t pitch, uint32_t render_flags);
 
+void ppu_renderDebugger(Ppu* ppu, int bg, uint offset);
+
 // Returns the current render scale, 1x = 256px, 2x=512px, 4x=1024px
 int PpuGetCurrentRenderScale(Ppu *ppu, uint32_t render_flags);
 

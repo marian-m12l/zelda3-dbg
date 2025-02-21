@@ -216,6 +216,17 @@ void ZeldaDrawPpuFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
   }
 }
 
+void ZeldaDrawPpuDebuggerFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_flags) {
+  // TODO Render TileMaps, Backgrounds, Window, Tiles, Sprites, Palettes, ...
+
+  PpuBeginDrawing(g_zenv.ppu, pixel_buffer, pitch, render_flags);
+  
+  ppu_renderDebugger(g_zenv.ppu, 0, 0);
+  ppu_renderDebugger(g_zenv.ppu, 1, 64*8*4);
+  ppu_renderDebugger(g_zenv.ppu, 2, 64*8*pitch);
+  ppu_renderDebugger(g_zenv.ppu, -1, 64*8*pitch + 64*8*4);
+}
+
 void HdmaSetup(uint32 addr6, uint32 addr7, uint8 transfer_unit, uint8 reg6, uint8 reg7, uint8 indirect_bank) {
   Dma *dma = g_zenv.dma;
   if (addr6) {
