@@ -179,3 +179,8 @@ Additionally, the following commands are available:
 ## License
 
 This project is licensed under the MIT license. See 'LICENSE.txt' for details.
+
+
+## Debugger view (WIP)
+
+![Screenshot From 2025-02-21 17-39-58](https://github.com/user-attachments/assets/8a0f66c5-d816-4a07-865c-37e0d56b3c59)
