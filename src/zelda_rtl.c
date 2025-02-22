@@ -220,6 +220,9 @@ void ZeldaDrawPpuDebuggerFrame(uint8 *pixel_buffer, size_t pitch, uint32 render_
   // TODO Render TileMaps, Backgrounds, Window, Tiles, Sprites, Palettes, ...
 
   PpuBeginDrawing(g_zenv.ppu, pixel_buffer, pitch, render_flags);
+
+  if (g_zenv.ppu->extraLeftRight != 0 || render_flags & kPpuRenderFlags_Height240)
+    ConfigurePpuSideSpace();
   
   ppu_renderDebugger(g_zenv.ppu, 0, 0);
   ppu_renderDebugger(g_zenv.ppu, 1, 64*8*4);

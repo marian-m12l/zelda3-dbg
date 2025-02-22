@@ -951,9 +951,9 @@ static NOINLINE void PpuDrawWholeLine(Ppu *ppu, uint y) {
 
 void ppu_renderDebugger(Ppu *ppu, int bg, uint offset) {
   uint16_t vscroll = ppu->bgLayer[bg].vScroll % (64*8);
-  uint16_t vscrollEnd = (vscroll + 224) % (64*8);
-  uint16_t hscroll = ppu->bgLayer[bg].hScroll % (64*8);
-  uint16_t hscrollEnd = (hscroll + 256) % (64*8);
+  uint16_t vscrollEnd = (ppu->bgLayer[bg].vScroll + 224 + ppu->extraBottomCur) % (64*8);
+  uint16_t hscroll = (ppu->bgLayer[bg].hScroll - ppu->extraLeftCur) % (64*8);
+  uint16_t hscrollEnd = (ppu->bgLayer[bg].hScroll + 256 + ppu->extraRightCur) % (64*8);
 
   for (int line = 0; line < 64*8; line++) {
     uint32 *dst = (uint32*)&ppu->renderBuffer[line * ppu->renderPitch + offset];
