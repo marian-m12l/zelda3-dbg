@@ -21,6 +21,7 @@ static void ppu_calculateMode7Starts(Ppu* ppu, int y);
 static int ppu_getPixelForMode7(Ppu* ppu, int x, int layer, bool priority);
 static bool ppu_getWindowState(Ppu* ppu, int layer, int x);
 static bool ppu_evaluateSprites(Ppu* ppu, int line);
+static bool ppu_evaluateSpritesDbg(Ppu* ppu, int line, PpuZbufType* objBufferData);
 static void PpuDrawWholeLine(Ppu *ppu, uint y);
 
 #define IS_SCREEN_ENABLED(ppu, sub, layer) (ppu->screenEnabled[sub] & (1 << layer))
@@ -951,33 +952,41 @@ static NOINLINE void PpuDrawWholeLine(Ppu *ppu, uint y) {
 
 void ppu_renderDebugger(Ppu *ppu, int bg, uint offset) {
   uint16_t vscroll = ppu->bgLayer[bg].vScroll % (64*8);
-  uint16_t vscrollEnd = (ppu->bgLayer[bg].vScroll + 224 + ppu->extraBottomCur) % (64*8);
-  uint16_t hscroll = (ppu->bgLayer[bg].hScroll - ppu->extraLeftCur) % (64*8);
-  uint16_t hscrollEnd = (ppu->bgLayer[bg].hScroll + 256 + ppu->extraRightCur) % (64*8);
+  uint16_t vscrollEnd = (ppu->bgLayer[bg].vScroll + 224) % (64*8);
+  uint16_t hscroll = (ppu->bgLayer[bg].hScroll) % (64*8);
+  uint16_t hscrollEnd = (ppu->bgLayer[bg].hScroll + 256) % (64*8);
+
+  uint16_t vscrollEndExt = (ppu->bgLayer[bg].vScroll + 224 + ppu->extraBottomCur) % (64*8);
+  uint16_t hscrollExt = (ppu->bgLayer[bg].hScroll - ppu->extraLeftCur) % (64*8);
+  uint16_t hscrollEndExt = (ppu->bgLayer[bg].hScroll + 256 + ppu->extraRightCur) % (64*8);
+  
+  PpuZbufType objBufferData[512+64];  // TODO display sprite after position 512 ??
 
   for (int line = 0; line < 64*8; line++) {
     uint32 *dst = (uint32*)&ppu->renderBuffer[line * ppu->renderPitch + offset];
 
     // evaluate sprites
-    ClearBackdrop(&ppu->objBuffer);
-    ppu->lineHasSprites = !ppu->forcedBlank && ppu_evaluateSprites(ppu, line - 1);
+    for (size_t i = 0; i != countof(objBufferData); i += 4)
+      *(uint64*)&objBufferData[i] = 0x0500050005000500;
+    ppu_evaluateSpritesDbg(ppu, line - 1, objBufferData);
 
     for (int x = 0; x < 64*8; x++) {
       int pixel = 0;
       if (bg >= 0) {
         pixel = ppu_getDbgPixelForBgLayer(ppu, x, line, bg);
-      } else if (line < 224 && x < 256) {
+      } else if (line < 240) {
         // get a pixel from the sprite buffer
-        pixel = ppu->objBuffer.data[x + kPpuExtraLeftRight] & 0xff;
+        pixel = objBufferData[(128+x)%512] & 0xff;
       }
       uint16_t color = ppu->cgram[pixel & 0xff];
 
-      if (bg < 0) {
-        if (line > 224 || x > 256) {
-          color = 0;
-        } else if (line == 0 || line == 224 || x == 0 || x == 256) {
-          color = 0xffff;
-        }
+      // TODO Sprite frame @ 256-512 ?
+      // TODO extended frame ??
+      if (bg < 0 && (
+        ((line == 0 || line == 224) && (128+x)%512 >= 256 && (128+x)%512 <= 511)
+        || (((128+x)%512 == 256 || (128+x)%512 == 511) && line >= 0 && line <= 224)
+        )) {
+        color = 0xffff;
       }
 
       if (bg >= 0 && (
@@ -987,6 +996,16 @@ void ppu_renderDebugger(Ppu *ppu, int bg, uint offset) {
         || ((x == hscroll || x == hscrollEnd) && vscrollEnd < vscroll && (line >= vscroll || line <= vscrollEnd))
         )) {
         color = 0xffff;
+      }
+
+      // TODO No extension on bg2 ?
+      if (bg >= 0 && (
+        ((line == vscroll || line == vscrollEndExt) && hscrollEndExt > hscrollExt && x >= hscrollExt && x <= hscrollEndExt)
+        || ((line == vscroll || line == vscrollEndExt) && hscrollEndExt < hscrollExt && (x >= hscrollExt || x <= hscrollEndExt))
+        || ((x == hscrollExt || x == hscrollEndExt) && vscrollEndExt > vscroll && line >= vscroll && line <= vscrollEndExt)
+        || ((x == hscrollExt || x == hscrollEndExt) && vscrollEndExt < vscroll && (line >= vscroll || line <= vscrollEndExt))
+        )) {
+        color = 0x059f;
       }
 
       uint32_t r = color & 0x1f;
@@ -1411,6 +1430,82 @@ static bool ppu_evaluateSprites(Ppu* ppu, int line) {
             dst[0] = z + pixel;
         }
       }
+    }
+  } while ((index = (index + 2) & 0xff) != index_end);
+  return (tilesLeft != tilesLeftOrg);
+}
+
+static bool ppu_evaluateSpritesDbg(Ppu* ppu, int line, PpuZbufType* objBufferData) {
+  // TODO: iterate over oam normally to determine in-range sprites,
+  //   then iterate those in-range sprites in reverse for tile-fetching
+  // TODO: rectangular sprites, wierdness with sprites at -256
+  int index = 0, index_end = index;
+  int spritesLeft = 32 + 1, tilesLeft = 34 + 1;
+  uint8 spriteSizes[2] = { kSpriteSizes[ppu->objSize][0], kSpriteSizes[ppu->objSize][1] };
+  int extra_left_right = ppu->extraLeftRight;
+  if (ppu->renderFlags & kPpuRenderFlags_NoSpriteLimits)
+    spritesLeft = tilesLeft = 1024;
+  int tilesLeftOrg = tilesLeft;
+
+  do {
+    int yy = ppu->oam[index] >> 8;
+//    if (yy == 0xf0)
+//      continue;  // this works for zelda because sprites are always 8 or 16.
+    // check if the sprite is on this line and get the sprite size
+    int row = (line - yy) & 0xff;
+    int highOam = ppu->oam[0x100 + (index >> 4)] >> (index & 15);
+    int spriteSize = spriteSizes[(highOam >> 1) & 1];
+    if (row >= spriteSize)
+      continue;
+    // in y-range, get the x location, using the high bit as well
+    int x = (ppu->oam[index] & 0xff) - (highOam & 1) * 256; // FIXME ???
+//    int x = (ppu->oam[index] & 0xff) + (highOam & 1) * 256;
+//    x -= (x >= 256 + extra_left_right) * 512;
+    // if in x-range
+//    if (x <= -(spriteSize + extra_left_right))
+//      continue;
+    // break if we found 32 sprites already
+/*    if (--spritesLeft == 0) {
+      break;
+    }*/
+    // get some data for the sprite and y-flip row if needed
+    int oam1 = ppu->oam[index + 1];
+    int objAdr = (oam1 & 0x100) ? ppu->objTileAdr2 : ppu->objTileAdr1;
+    if (oam1 & 0x8000)
+      row = spriteSize - 1 - row;
+    // fetch all tiles in x-range
+    int paletteBase = 0x80 + 16 * ((oam1 & 0xe00) >> 9);
+    int prio = SPRITE_PRIO_TO_PRIO((oam1 & 0x3000) >> 12, (oam1 & 0x800) == 0);
+    PpuZbufType z = paletteBase + (prio << 8);
+    
+    for (int col = 0; col < spriteSize; col += 8) {
+//      if (col + x > -8 - extra_left_right && col + x < 256 + extra_left_right) {
+        // break if we found 34 8*1 slivers already
+/*        if (--tilesLeft == 0) {
+          return true;
+        }*/
+        // figure out which tile this uses, looping within 16x16 pages, and get it's data
+        int usedCol = oam1 & 0x4000 ? spriteSize - 1 - col : col;
+        int usedTile = ((((oam1 & 0xff) >> 4) + (row >> 3)) << 4) | (((oam1 & 0xf) + (usedCol >> 3)) & 0xf);
+        uint16 *addr = &ppu->vram[(objAdr + usedTile * 16 + (row & 0x7)) & 0x7fff];
+        uint32 plane = addr[0] | addr[8] << 16;
+        // go over each pixel
+        int px_left = 0;  //FIXME IntMax(-(col + x + kPpuExtraLeftRight), 0);
+        int px_right = 8; //FIXME IntMin(256 + kPpuExtraLeftRight - (col + x), 8);
+//        PpuZbufType *dst = ppu->objBuffer.data + col + x + px_left + kPpuExtraLeftRight;
+        PpuZbufType *dst = objBufferData + col + x + 256 + px_left; // FIXME + kPpuExtraLeftRight;
+        
+        for (int px = px_left; px < px_right; px++, dst++) {
+          int shift = oam1 & 0x4000 ? px : 7 - px;
+          uint32 bits = plane >> shift;
+          int pixel = (bits >> 0) & 1 | (bits >> 7) & 2 | (bits >> 14) & 4 | (bits >> 21) & 8;
+          // draw it in the buffer if there is a pixel here, and the buffer there is still empty
+          if (pixel != 0 && (dst[0] & 0xff) == 0) {
+            //printf("pixel at %d = 0x%x\n", x, z + pixel);
+            dst[0] = z + pixel;
+          }
+        }
+//      }
     }
   } while ((index = (index + 2) & 0xff) != index_end);
   return (tilesLeft != tilesLeftOrg);
