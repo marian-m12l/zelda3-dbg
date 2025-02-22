@@ -977,6 +977,9 @@ void ppu_renderDebugger(Ppu *ppu, int bg, uint offset) {
       } else if (line < 240) {
         // get a pixel from the sprite buffer
         pixel = objBufferData[(128+x)%512] & 0xff;
+        if (pixel == 0 && x >= 384 && x < 384+64) {
+          pixel = objBufferData[128+x] & 0xff;
+        }
       }
       uint16_t color = ppu->cgram[pixel & 0xff];
 
@@ -987,6 +990,12 @@ void ppu_renderDebugger(Ppu *ppu, int bg, uint offset) {
         || (((128+x)%512 == 256 || (128+x)%512 == 511) && line >= 0 && line <= 224)
         )) {
         color = 0xffff;
+      }
+      if (bg < 0 && (
+        ((line == 0 || line == 224 + ppu->extraBottomCur) && (128+x) >= 256 - ppu->extraLeftCur && (128+x) <= 511 + ppu->extraRightCur)
+        || (((128+x)%512 == 256 - ppu->extraLeftCur || (128+x) == 511 + ppu->extraRightCur) && line >= 0 && line <= 224 + ppu->extraBottomCur)
+        )) {
+        color = 0x059f;
       }
 
       if (bg >= 0 && (
